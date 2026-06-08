@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Mini Office 8bit</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Telegram Mini App JS -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #1c1c2b;
+      font-family: system-ui, sans-serif;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    #top-bar {
+      flex: 0 0 auto;
+      padding: 6px 10px;
+      font-size: 12px;
+      background: #2a2a3c;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #444;
+    }
+
+    #top-bar span {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #controls {
+      flex: 0 0 auto;
+      padding: 4px 8px;
+      background: #202033;
+      font-size: 12px;
+      display: flex;
+      gap: 6px;
+    }
+
+    #controls button {
+      background: #444;
+      color: #fff;
+      border: 0;
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    #controls button:active {
+      transform: translateY(1px);
+      background: #666;
+    }
+
+    #game-container {
+      flex: 1 1 auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #13131f;
+    }
+
+    canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      border: 4px solid #555;
+      background: #101018;
+    }
+  </style>
+</head>
+<body>
+  <div id="top-bar">
+    <span id="user-label">Loading...</span>
+    <span>Mini Office 8bit</span>
+  </div>
+
+  <div id="controls">
+    <button data-action="walk">Гулять</button>
+    <button data-action="desk1">Сесть за стол 1</button>
+    <button data-action="desk2">Сесть за стол 2</button>
+    <button data-action="desk3">Сесть за стол 3</button>
+    <button data-action="desk4">Сесть за стол 4</button>
+    <button data-action="leave">Уйти домой</button>
+  </div>
+
+  <div id="game-container">
+    <canvas id="office" width="160" height="120"></canvas>
+  </div>
+
+  <script>
+    // --- 1. Инициализация Telegram Mini App ---
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready(); // говорим Телеге, что всё готово [web:2][web:6]
+    }
+
+    const initDataUnsafe = tg?.initDataUnsafe || {};
+    const user = initDataUnsafe.user || {};
+    const userName = user.first_name || user.username || "Anonymous";
+    const userLabel = document.getElementById("user-label");
+    userLabel.textContent = "Вы: " + userName;
+
+    // --- 2. Примитивная 8бит сцена ---
+    const canvas = document.getElementById("office");
+    const ctx = canvas.getContext("2d");
+
+    const SCALE = 3; // увеличивающий масштаб для Telegram-клиента
+    function resizeCanvas() {
+      const container = document.getElementById("game-container");
+      const maxW = container.clientWidth - 16;
+      const maxH = container.clientHeight - 16;
+
+      // масштабируем integer‑кратко
+      const scale = Math.floor(Math.min(maxW / canvas.width, maxH / canvas.height));
+      const cssScale = Math.max(SCALE, scale);
+      canvas.style.width = canvas.width * cssScale + "px";
+      canvas.style.height = canvas.height * cssScale + "px";
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    // --- 3. Офис: 4 стола с предметами ---
+    // Координаты столов (верхний левый угол)
+    const desks = [
+      { x: 10,  y: 20, color: "#8b5a2b", label: "D1", items: ["PC", "Mug"] },
+      { x: 90,  y: 20, color: "#8b3a5a", label: "D2", items: ["Laptop", "Plant"] },
+      { x: 10,  y: 70, color: "#5a8b2b", label: "D3", items: ["PC", "Stapler"] },
+      { x: 90,  y: 70, color: "#2b5a8b", label: "D4", items: ["Tablet", "Lamp"] },
+    ];
+
+    // Состояние персонажа
+    const player = {
+      mode: "walk", // "walk" | "desk1-4" | "leave"
+      x: 70,
+      y: 50,
+      frame: 0,
+    };
+
+    function setMode(mode) {
+      player.mode = mode;
+      if (mode.startsWith("desk")) {
+        const idx = Number(mode.slice(4)) - 1;
+        const d = desks[idx];
+        player.x = d.x + 10;
+        player.y = d.y - 6;
+      } else if (mode === "leave") {
+        // Уводим персонажа за экран
+        player.x = -20;
+        player.y = -20;
+      } else if (mode === "walk") {
+        player.x = 70;
+        player.y = 50;
+      }
+    }
+
+    // --- 4. Отрисовка ---
+    function drawBackground() {
+      // Пол в стиле The Office: серый, с клетками [web:10]
+      ctx.fillStyle = "#181822";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#202436";
+      for (let y = 0; y < canvas.height; y += 8) {
+        ctx.fillRect(0, y, canvas.width, 1);
+      }
+      for (let x = 0; x < canvas.width; x += 8) {
+        ctx.fillRect(x, 0, 1, canvas.height);
+      }
+    }
+
+    function drawDesk(d, index) {
+      // Стол
+      ctx.fillStyle = d.color;
+      ctx.fillRect(d.x, d.y, 40, 18);
+
+      // Ножки
+      ctx.fillStyle = "#333";
+      ctx.fillRect(d.x + 2, d.y + 18, 4, 6);
+      ctx.fillRect(d.x + 34, d.y + 18, 4, 6);
+
+      // Монитор / ноут / девайсы как простые прямоугольники
+      ctx.fillStyle = "#111";
+      ctx.fillRect(d.x + 5, d.y + 3, 12, 8); // экран
+      ctx.fillStyle = "#0f0";
+      ctx.fillRect(d.x + 6, d.y + 4, 10, 6); // "светящийся" экран
+
+      // Индивидуальные фишки на каждом столе
+      ctx.fillStyle = "#ff0"; // кружка / лампа / растение
+      if (index === 0) {
+        // Стол 1: кружка + листок
+        ctx.fillRect(d.x + 22, d.y + 6, 3, 5); // кружка
+        ctx.fillStyle = "#ccc";
+        ctx.fillRect(d.x + 28, d.y + 8, 6, 4); // бумага
+      } else if (index === 1) {
+        // Стол 2: растение
+        ctx.fillRect(d.x + 24, d.y + 6, 2, 6); // стебель
+        ctx.fillStyle = "#0f8";
+        ctx.fillRect(d.x + 22, d.y + 4, 6, 3); // листья
+      } else if (index === 2) {
+        // Стол 3: степлер
+        ctx.fillStyle = "#f0f";
+        ctx.fillRect(d.x + 24, d.y + 9, 8, 3);
+      } else if (index === 3) {
+        // Стол 4: лампа
+        ctx.fillStyle = "#666";
+        ctx.fillRect(d.x + 22, d.y + 8, 2, 6); // ножка
+        ctx.fillStyle = "#ff5";
+        ctx.fillRect(d.x + 20, d.y + 4, 6, 4); // абажур
+      }
+
+      // Маленький ярлык стола (номер)
+      ctx.fillStyle = "#000";
+      ctx.fillRect(d.x + 1, d.y + 1, 8, 6);
+      ctx.fillStyle = "#fff";
+      ctx.font = "5px monospace";
+      ctx.fillText(String(index + 1), d.x + 3, d.y + 6);
+    }
+
+    function drawPlayer() {
+      if (player.mode === "leave") return; // не рисуем, если ушёл
+
+      // 8‑бит спрайт: простой человечек
+      const px = Math.round(player.x);
+      const py = Math.round(player.y);
+
+      // Тень
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillRect(px - 3, py + 6, 6, 2);
+
+      // Тело
+      ctx.fillStyle = "#f5cba7"; // лицо
+      ctx.fillRect(px - 3, py - 6, 6, 6); // голова
+
+      ctx.fillStyle = "#3b5998"; // рубашка
+      ctx.fillRect(px - 3, py, 6, 6);
+
+      ctx.fillStyle = "#000"; // ноги
+      ctx.fillRect(px - 3, py + 6, 2, 4);
+      ctx.fillRect(px + 1, py + 6, 2, 4);
+
+      // Примитивная анимация "шага"
+      if (player.mode === "walk") {
+        const offset = (player.frame % 20 < 10) ? 1 : -1;
+        ctx.fillRect(px - 3, py + 6 + offset, 2, 4);
+        ctx.fillRect(px + 1, py + 6 - offset, 2, 4);
+      }
+
+      // Имя над персонажем (урезанное)
+      ctx.fillStyle = "#fff";
+      ctx.font = "5px monospace";
+      const label = (userName || "You").slice(0, 8);
+      ctx.fillText(label, px - label.length * 2, py - 10);
+    }
+
+    function loop() {
+      player.frame++;
+
+      drawBackground();
+      desks.forEach((d, i) => drawDesk(d, i));
+      drawPlayer();
+
+      requestAnimationFrame(loop);
+    }
+    loop();
+
+    // --- 5. Управление кнопками ---
+    document.getElementById("controls").addEventListener("click", (e) => {
+      if (e.target.tagName !== "BUTTON") return;
+      const action = e.target.dataset.action;
+      if (action === "walk") {
+        setMode("walk");
+      } else if (action === "leave") {
+        setMode("leave");
+      } else if (action.startsWith("desk")) {
+        setMode(action);
+      }
+    });
+
+  </script>
+</body>
+</html>
